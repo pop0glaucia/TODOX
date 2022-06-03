@@ -1,0 +1,767 @@
+-------------------------------------------------------------------------------------------------------------
+##############################################################################################################################################################
+# Author: Glaucia Diniz
+# Date/Version/Changelog:
+# 2022-05-17 - 1.0 - First release
+# Objective:
+# Script that adds a specified Tag to machines in MDATP
+# Input is expected to be a CSV file with 6 columns, 1.'Dispositivo', 2.'STATUS', 3.'Sistema Operacional', 4.'Versão de Sistema Operacional', 5.'IP', 6.'TIPO'. The first line are the headers. Break line for each new entry.
+##############################################################################################################################################################
+# Fonte de Pequisa
+# Fonte: https://docs.microsoft.com/pt-br/microsoft-365/security/defender-endpoint/exposed-apis-odata-samples?view=o365-worldwide
+# Fonte: https://argonsys.com/microsoft-cloud/library/microsoft-defender-for-endpoint-adding-tags-for-multiple-devices-from-csv-list/
+# Fonte: https://www.drware.com/microsoft-defender-for-endpoint-adding-tags-for-multiple-devices-from-csv-list/
+##############################################################################################################################################################
+# Conectar Powershell ao Aplicativo registrado no Tenant do Azure AD
+##############################################################################################################################################################
+ 
+$tenantId = '' ### Paste your own tenant ID here
+$appId = '' ### Paste your own app ID here
+$appkey = '' ### Paste your own app keys here
+$resourceAppIdUri = 'https://api.securitycenter.windows.com'
+$oAuthUri = https://login.windows.net/$TenantId/oauth2/token
+$authBody = [Ordered] @{
+   resource = "$resourceAppIdUri"
+   client_id = "$appId"
+   client_secret = "$appkey"
+   grant_type = 'client_credentials'
+}
+$authResponse = Invoke-RestMethod -Method Post -Uri $oAuthUri -Body $authBody -ErrorAction Stop
+$token = $authResponse.access_token
+ 
+##############################################################################################################################################################
+# Store auth token into header for future use
+##############################################################################################################################################################
+ 
+$headers = @{
+       'Content-Type' = 'application/json'
+       Accept = 'application/json'
+       Authorization = "Bearer $token"
+   }
+ 
+##############################################################################################################################################################
+# Declarar Variáveis de Ambiente
+##############################################################################################################################################################
+ 
+# Path Dir
+$Diretorio = 'C:\Scripts\DefenderEndpoint'
+cd $Diretorio
+ 
+# FileName Data source '*.csv'
+$FileName = 'MaquinasImportantes'
+ 
+# Criar variavel com a Formatacao Header
+$Header = @"
+<style>
+TABLE {border: 1px solid black; border-width: 1px; border-style: solid; border-color: black; border-collapse: collapse;}
+TH {border-width: 1px; padding: 3px; border-style: solid; border-color: black; background-color: #6495ED;}
+TD {border-width: 1px; padding: 3px; border-style: solid; border-color: black;}
+</style>
+"@
+ 
+# Criar variavel com o nome do Servidor que hospeda o Script
+$SrvName = 'SRV01'
+ 
+# Criar variavel com os dados do Send Email
+$smtpserver = "SRV-MBX"
+$from = noreply@meudominio.com.br
+$to = seu-email@meudominio.com.br
+ 
+# dataColeta: variável utilizada para geração do arquivo .CSV
+$dataColeta = Get-Date -Format "ddMMyyyy"
+ 
+# Data do Filtro MsGraph
+#$dataMSGraph = $((Get-Date).AddHours(-24).ToString("yyyy-MM-dd") + 'Z')
+$dataMSGraph = $((Get-Date -Format "yyyy-MM-dd") + 'Z')
+ 
+##############################################################################################################################################################
+# Criar Função de Log
+##############################################################################################################################################################
+ 
+Function LOG1
+{
+   Param ( [string] $logstring)
+   $hora = get-date -format "dd/MM/yy HH:mm:ss"
+   $horaSimple = get-date -format "ddMMyyyy"
+   $horalog = $hora +" - " + $logstring
+   $logSetInfo = "$($Diretorio + '\log\' + $horaSimple + '_' + 'GeneralInventoryInformation.log')"
+   Add-Content $logSetInfo -Value $Horalog
+}
+ 
+ 
+Function LOG2
+{
+   Param ( [string] $logstring)
+   $hora = get-date -format "dd/MM/yy HH:mm:ss"
+   $horaSimple = get-date -format "ddMMyyyy"
+   $horalog = $hora +" - " + $logstring
+   $logSetInfo = "$($Diretorio + '\log\' + $horaSimple + '_' + 'MachinesTags.log')"
+   Add-Content $logSetInfo -Value $Horalog
+}
+ 
+##############################################################################################################################################################
+# CSV input file serialization
+##############################################################################################################################################################
+ 
+$Data = @()
+$Data = Import-Csv -Path $($Diretorio + '\fonte\' + $FileName + '.csv') -Delimiter ";"
+$Data = $Data | ? {( ($_.STATUS -eq 'ATIVO') -and (($_."Sistema Operacional" -eq 'Microsoft Windows Server') -or ($_."Sistema Operacional" -eq 'Linux Server')) -and (($_.TIPO -eq 'Servidor Físico') -or ($_.TIPO -eq 'Servidor Virtual')))}
+$Data = $Data | Sort-Object Dispositivo
+ 
+$Linux = @()
+$Windows = @()
+ 
+$Linux = $Data | ? {($_.'Sistema Operacional' -eq 'Linux Server')}
+$Windows = $Data | ? {($_.'Sistema Operacional' -eq 'Microsoft Windows Server')}
+ 
+Write-Host "1. Informação - [$([int]$Data.count)] - Total de servidores aptos a receber a TAG."
+Write-Host "2. Informação - [$([int]$Linux.count)] - Total de servidores ..Linux.. aptos a receber a TAG."
+Write-Host "3. Informação - [$([int]$Windows.count)] - Total de servidores ..Windows.. aptos a receber a TAG."
+ 
+LOG1 "1. Informação - [$([int]$Data.count)] - Total de servidores aptos a receber a TAG."
+LOG1 "2. Informação - [$([int]$Linux.count)] - Total de servidores ..Linux.. aptos a receber a TAG."
+LOG1 "3. Informação - [$([int]$Windows.count)] - Total de servidores ..Windows.. aptos a receber a TAG."
+ 
+ 
+##############################################################################################################################################################
+# Criar Função de Get-AllDevices
+##############################################################################################################################################################
+ 
+Function Get-AllDevices($Status)
+{
+   $devices = @()
+   $itemsPerQuery = 10000;
+   $page=0;
+   $hasNextPage = $true
+   $query = [string]::Format('https://api.securitycenter.microsoft.com/api/machines?$filter={0}&$top={1}&$orderBy={2}&$skip={3}',"onboardingStatus eq '$Status'",$itemsPerQuery,"computerDnsName", $page*$itemsPerQuery)
+   Write-host $query
+   do
+   {
+       $webResponseMachine = Invoke-RestMethod -Method Get -Uri $query -Headers $headers -ErrorAction Stop
+       $devices += $webResponseMachine.value
+ 
+       if($webResponseMachine.value.Length -eq $itemsPerQuery)
+       {
+           $page++
+           Start-Sleep -Seconds 60
+           
+       }else
+       {
+           $hasNextPage=$false
+       }
+ 
+   }
+   while($hasNextPage -eq $true)
+ 
+   return $devices
+}
+ 
+ 
+ 
+$devices = Get-AllDevices -Status "Onboarded"
+ 
+##############################################################################################################################################################
+# Separar maquinas com o endpoint do Defender das maquina sem o endpoint
+##############################################################################################################################################################
+# Added timer to respect API call limits (100 per minute and 1500 per hour)
+# Defaulting to the shortest limit, which is 1500 per hour, which equates to 25 calls per minute
+# Introduced a 3 sleep at the beginning of every while iteration
+# Iterate over the full array
+#
+# Sintaxe Filter: https://api-us.securitycenter.windows.com/api/machines?$filter=computerDnsName eq 'srv-linux-01' and onboardingStatus eq 'Onboarded'
+##############################################################################################################################################################
+ 
+$NotInstalled = @()
+$Installed = @()
+ 
+$IdNotInstalled = 0
+$IdInstalled = 0
+$Contador = 0
+ 
+$Data | foreach {
+   $Contador++
+   $MachineName = $($_.Dispositivo).ToLower();
+   $MachineDns = $($_.Dispositivo + '.meudominio.local').ToLower();
+   $MachineStatus = $($_.STATUS);
+   $MachineSO = $($_."Sistema Operacional");
+   $MachineSOv = $($_."Versão de Sistema Operacional");
+   $MachineIp = $($_.IP);
+   $MachineTipo = $($_.TIPO);
+ 
+   $currentDevices = @()
+   $currentDevices = $devices | where { $_.lastIpAddress -eq $MachineIp -or $_.computerDnsName -eq $MachineDns -or $_.computerDnsName -eq $MachineName }
+   $totalRowsDevice = $currentDevices.Count
+ 
+   if($currentDevices.Count -eq 0)
+   {
+       Write-Host "$Contador - nao exsite", $MachineDns -ForegroundColor Red
+           $IdNotInstalled++
+           $NotInstalled += $MachineName | Select-Object `
+               @{l='Id';e={$IdNotInstalled}}, `
+               @{l='Message';e={'NotInstalled'}}, `
+               @{l='MachineName';e={$MachineName}}, `
+               @{l='MachineDns';e={$MachineDns}}, `
+               @{l='MachineStatus';e={$MachineStatus}}, `
+               @{l='MachineSO';e={$MachineSO}}, `
+               @{l='MachineSOv';e={$MachineSOv}}, `
+               @{l='MachineIp';e={$MachineIp}}, `
+               @{l='MachineTipo';e={$MachineTipo}}, `
+               @{l='mdatpId';e={'-'}}
+   }
+ 
+   if($currentDevices.Count -gt 1)
+   {
+       Write-Host "$Contador - duplicado", $MachineDns -ForegroundColor Yellow
+           $IdInstalled++
+           $Installed += $MachineName | Select-Object `
+               @{l='Id';e={$IdInstalled}}, `
+               @{l='Message';e={'Installed'}}, `
+               @{l='isDuplicate';e={$([int]$currentDevices.Count)}}, `
+               @{l='MachineName';e={$MachineName}}, `
+               @{l='MachineDns';e={$MachineDns}}, `
+               @{l='MachineStatus';e={$MachineStatus}}, `
+               @{l='MachineSO';e={$MachineSO}}, `
+               @{l='MachineSOv';e={$MachineSOv}}, `
+               @{l='MachineIp';e={$MachineIp}}, `
+               @{l='MachineTipo';e={$MachineTipo}}, `
+               @{l='mdatpId';e={$($currentDevices.id)}}
+ 
+   }
+ 
+   if($currentDevices -ne $null -and $currentDevices.Count -le 1)
+   {
+       Write-Host "$Contador - so tem um", $MachineDns -ForegroundColor Green
+           $IdInstalled++
+           $Installed += $MachineName | Select-Object `
+               @{l='Id';e={$IdInstalled}}, `
+               @{l='Message';e={'Installed'}}, `
+               @{l='isDuplicate';e={$([int]($currentDevices -ne $null -and $currentDevices.Count -le 1).count)}}, `
+               @{l='MachineName';e={$MachineName}}, `
+               @{l='MachineDns';e={$MachineDns}}, `
+               @{l='MachineStatus';e={$MachineStatus}}, `
+               @{l='MachineSO';e={$MachineSO}}, `
+               @{l='MachineSOv';e={$MachineSOv}}, `
+               @{l='MachineIp';e={$MachineIp}}, `
+               @{l='MachineTipo';e={$MachineTipo}}, `
+               @{l='mdatpId';e={$($currentDevices.id)}}
+   }
+ 
+}
+ 
+Write-Host "4. Informação - [$([int]$NotInstalled.count)] - Total de servidores sem o MDATP |[-]| Qtd Duplicadas:[$([int]($NotInstalled | ? {($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate -ErrorAction SilentlyContinue).Count)]"
+Write-Host "5. Informação - [$([int]$Installed.count)] - Total de servidores com o agente do Defender |[-]| Qtd Duplicadas:[$([int]($Installed | ? {($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate).Count)]"
+ 
+LOG1 "4. Informação - [$([int]$NotInstalled.count)] - Total de servidores sem o MDATP |[-]| Qtd Duplicadas:[$([int]($NotInstalled | ? {($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate -ErrorAction SilentlyContinue).Count)]"
+LOG1 "5. Informação - [$([int]$Installed.count)] - Total de servidores com o agente do Defender |[-]| Qtd Duplicadas:[$([int]($Installed | ? {($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate).Count)]"
+ 
+ 
+##############################################################################################################################################################
+# Filtrar Maquinas ATIVAS
+##############################################################################################################################################################
+ 
+$Contador = 0
+ 
+$IdNoConnectivity = 0
+$NoConnectivity = @()
+ 
+$IdActive = 0
+$Active = @()
+ 
+$Installed | % {
+   $Contador++
+   $isDuplicate = $($_.isDuplicate);
+   $MachineName = $($_.MachineName);
+   $MachineDns = $($_.MachineDns);
+   $MachineStatus = $($_.MachineStatus);
+   $MachineSO = $($_.MachineSO);
+   $MachineSOv = $($_.MachineSOv);
+   $MachineIp = $($_.MachineIp);
+   $MachineTipo = $($_.MachineTipo);
+   $mdatpId = $($_.mdatpId);
+ 
+ 
+   if ($isDuplicate -eq '1')
+   {
+   $currentDevices = @()
+   $currentDevices = $devices | where {($_.Id -eq $mdatpId) -and ($_.lastSeen.Split("T")[0] + 'Z' -ge $($dataMSGraph))}
+   $totalRowsDevice = $currentDevices.Count
+       if($currentDevices.Count -eq 0)
+       {
+           Write-Host "$Contador - Sem conectividade", $MachineDns -ForegroundColor Red
+               $IdNoConnectivity++
+               $NoConnectivity += $MachineName | Select-Object `
+                   @{l='Id';e={$IdNoConnectivity}}, `
+                   @{l='Message';e={'Inativo'}}, `
+                   @{l='MachineName';e={$MachineName}}, `
+                   @{l='MachineDns';e={$MachineDns}}, `
+                   @{l='MachineStatus';e={$(($devices | where {($_.Id -eq $mdatpId) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph))}).healthStatus)}}, `
+                   @{l='MachineLastSeen';e={$(($devices | where {($_.Id -eq $mdatpId) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph))}).lastSeen)}}, `
+                   @{l='isDuplicate';e={'0'}}, `
+                   @{l='MachineSO';e={$MachineSO}}, `
+                   @{l='MachineSOv';e={$MachineSOv}}, `
+                   @{l='MachineIp';e={$MachineIp}}, `
+                   @{l='MachineTipo';e={$MachineTipo}}, `
+                   @{l='mdatpId';e={$(($devices | where {($_.Id -eq $mdatpId) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph))}).id)}}
+       }
+ 
+       if($currentDevices -ne $null -and $currentDevices.Count -le 1)
+       {
+           Write-Host "$Contador - Com conectividade", $MachineDns -ForegroundColor Green
+               $IdActive++
+               $Active += $MachineName | Select-Object `
+                   @{l='Id';e={$IdActive}}, `
+                   @{l='Message';e={'Ativo'}}, `
+                   @{l='MachineName';e={$MachineName}}, `
+                   @{l='MachineDns';e={$MachineDns}}, `
+                   @{l='MachineStatus';e={$($currentDevices.healthStatus)}}, `
+                   @{l='MachineLastSeen';e={$($currentDevices.lastSeen)}}, `
+                   @{l='isDuplicate';e={$([int]$currentDevices.count)}}, `
+                   @{l='MachineSO';e={$MachineSO}}, `
+                   @{l='MachineSOv';e={$MachineSOv}}, `
+                   @{l='MachineIp';e={$MachineIp}}, `
+                   @{l='MachineTipo';e={$MachineTipo}}, `
+                   @{l='mdatpId';e={$($currentDevices.id)}}
+       }
+   }
+   else
+   {
+   $currentDevices = @()
+   $currentDevices = $devices | where {($_.lastIpAddress -eq $MachineIp) -and ($_.lastSeen.Split("T")[0] + 'Z' -ge $($dataMSGraph)) -or ($_.computerDnsName -eq $MachineDns) -and ($_.lastSeen.Split("T")[0] + 'Z' -ge $($dataMSGraph)) -or ($_.computerDnsName -eq $MachineName) -and ($_.lastSeen.Split("T")[0] + 'Z' -ge $($dataMSGraph))}
+   $totalRowsDevice = $currentDevices.Count
+       if($currentDevices.Count -eq 0)
+       {
+           Write-Host "$Contador - Sem conectividade", $MachineDns -ForegroundColor Red
+               $IdNoConnectivity++
+               $NoConnectivity += $MachineName | Select-Object `
+                   @{l='Id';e={$IdNoConnectivity}}, `
+                   @{l='Message';e={'Inativo'}}, `
+                   @{l='MachineName';e={$MachineName}}, `
+                   @{l='MachineDns';e={$MachineDns}}, `
+                   @{l='MachineStatus';e={$(($devices | where {($_.lastIpAddress -eq $MachineIp) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph)) -or ($_.computerDnsName -eq $MachineDns) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph)) -or ($_.computerDnsName -eq $MachineName) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph))}).healthStatus)}}, `
+                   @{l='MachineLastSeen';e={$(($devices | where {($_.lastIpAddress -eq $MachineIp) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph)) -or ($_.computerDnsName -eq $MachineDns) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph)) -or ($_.computerDnsName -eq $MachineName) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph))}).lastSeen)}}, `
+                   @{l='isDuplicate';e={'0'}}, `
+                   @{l='MachineSO';e={$MachineSO}}, `
+                   @{l='MachineSOv';e={$MachineSOv}}, `
+                   @{l='MachineIp';e={$MachineIp}}, `
+                   @{l='MachineTipo';e={$MachineTipo}}, `
+                   @{l='mdatpId';e={$(($devices | where {($_.lastIpAddress -eq $MachineIp) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph)) -or ($_.computerDnsName -eq $MachineDns) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph)) -or ($_.computerDnsName -eq $MachineName) -and ($_.lastSeen.Split("T")[0] + 'Z' -lt $($dataMSGraph))}).id)}}
+       }
+ 
+       if($currentDevices.Count -gt 1)
+       {
+           Write-Host "$Contador - duplicado", $MachineDns -ForegroundColor Yellow
+               $IdActive++
+               $Active += $MachineName | Select-Object `
+                   @{l='Id';e={$IdActive}}, `
+                   @{l='Message';e={'Ativo'}}, `
+                   @{l='MachineName';e={$MachineName}}, `
+                   @{l='MachineDns';e={$MachineDns}}, `
+                   @{l='MachineStatus';e={$($currentDevices.healthStatus)}}, `
+                   @{l='MachineLastSeen';e={$($currentDevices.lastSeen)}}, `
+                   @{l='isDuplicate';e={$([int]$currentDevices.count)}}, `
+                   @{l='MachineSO';e={$MachineSO}}, `
+                   @{l='MachineSOv';e={$MachineSOv}}, `
+                   @{l='MachineIp';e={$MachineIp}}, `
+                   @{l='MachineTipo';e={$MachineTipo}}, `
+                   @{l='mdatpId';e={$($currentDevices.id)}}
+       }
+ 
+       if($currentDevices -ne $null -and $currentDevices.Count -le 1)
+       {
+           Write-Host "$Contador - Com conectividade", $MachineDns -ForegroundColor Green
+               $IdActive++
+               $Active += $MachineName | Select-Object `
+                   @{l='Id';e={$IdActive}}, `
+                   @{l='Message';e={'Ativo'}}, `
+                   @{l='MachineName';e={$MachineName}}, `
+                   @{l='MachineDns';e={$MachineDns}}, `
+                   @{l='MachineStatus';e={$($currentDevices.healthStatus)}}, `
+                   @{l='MachineLastSeen';e={$($currentDevices.lastSeen)}}, `
+                   @{l='isDuplicate';e={$([int]$currentDevices.count)}}, `
+                   @{l='MachineSO';e={$MachineSO}}, `
+                   @{l='MachineSOv';e={$MachineSOv}}, `
+                   @{l='MachineIp';e={$MachineIp}}, `
+                   @{l='MachineTipo';e={$MachineTipo}}, `
+                   @{l='mdatpId';e={$($currentDevices.id)}}
+       }
+   }
+ 
+   $isDuplicate = $null;
+   $MachineName = $null;
+   $MachineDns = $null;
+   $MachineStatus = $null;
+   $MachineSO = $null;
+   $MachineSOv = $null;
+   $MachineIp = $null;
+   $MachineTipo = $null;
+   $mdatpId = $null;
+ 
+}
+ 
+Write-Host "6. Informação - [$([int]$Active.count)] - Total de servidores ativos no Defender Endpoint [-] Total de mquina Duplicadas:[$([int]($Active | ?{($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate).Count)]"
+Write-Host "7. Informação - [$([int]$NoConnectivity.count)] - Total de servidores inativos no Defender Endpoint [-] Total de mquina Duplicadas:[$([int]($NoConnectivity | ? {($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate).Count)]"
+ 
+LOG1 "6. Informação - [$([int]$Active.count)] - Total de servidores ativos no Defender Endpoint [-] Total de mquina Duplicadas:[$([int]($Active | ?{($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate).Count)]"
+LOG1 "7. Informação - [$([int]$NoConnectivity.count)] - Total de servidores inativos no Defender Endpoint [-] Total de mquina Duplicadas:[$([int]($NoConnectivity | ? {($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate).Count)]"
+ 
+ 
+##############################################################################################################################################################
+# Gerenciando TAGs
+##############################################################################################################################################################
+ 
+Write-Host "8. Informação - Aguarde......Gerenciando tags."
+LOG1 "8. Informação - Aguarde......Gerenciando tags."
+ 
+##############################################################################################################################################################
+######## Aplicar TAG
+##############################################################################################################################################################
+ 
+##############################################################################################################################################################
+######## Aplicar TAG
+##############################################################################################################################################################
+ 
+$Contador = 0
+ 
+$Active | ? {($_.isDuplicate -eq '0')} | % {
+   $Contador++
+   Start-Sleep -Seconds 0.5
+   
+   $Id   = $($_.Id);
+   $Message = $($_.Message);
+   $MachineName = $($_.MachineName);
+   $MachineDns = $($_.MachineDns);
+   $MachineStatus = $($_.MachineStatus);
+   $MachineLastSeen = $($_.MachineLastSeen);
+   $isDuplicate = $($_.isDuplicate);
+   $MachineSO = $($_.MachineSO);
+   $MachineSOv = $($_.MachineSOv);
+   $MachineIp = $($_.MachineIp);
+   $MachineTipo = $($_.MachineTipo);
+   $mdatpId = $($_.mdatpId);
+ 
+       
+       $currentDevices = @()
+       $currentDevices = $devices | where {($_.Id -eq $mdatpId)}
+       $totalRowsDevice = $currentDevices.Count
+ 
+       if ($currentDevices.machineTags -eq $null)
+       {
+           Write-Host "[$Contador] - Escrever TAG - TAG:$MachineSO - MachineName:$MachineName - IP:$MachineIp."  -ForegroundColor Cyan
+           
+           ###########
+           # Add TAG #
+           ###########
+ 
+           $AddMachineId = @()
+           $AddMachineId = $currentDevices.id;
+   
+           $AddBody = @()
+           $AddBody = @{
+             "Value"="$($MachineSO)";
+             "Action"="Add";
+           }   
+ 
+           $AddUrl = @()
+           $AddUrl = https://api.securitycenter.windows.com/api/machines/$($AddMachineId)/tags
+       
+           $AddResponse = @()
+           $AddResponse = Invoke-WebRequest -Method Post -Uri $AddUrl -Headers $headers -Body ($AddBody|ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
+       }
+       elseif (!($currentDevices.machineTags -eq "$($MachineSO)"))
+       {
+           Write-Host "[$Contador] - Limpar TAG e escrever novo valor - TAG:$MachineSO - MachineName:$MachineName - IP:$MachineIp." -ForegroundColor Yellow
+           
+           ##############
+           # Remove TAG #
+           ##############
+ 
+           $RemoveMachineId = @()
+           $RemoveMachineId = $currentDevices.id;
+ 
+           $($currentDevices.machineTags) | %{
+               $RemoveTags = $($_);
+               Write-Host "--> Limpar TAG: $RemoveTags" -ForegroundColor Yellow
+ 
+                       $RemoveBody = @()
+                       $RemoveBody = @{
+                         "Value"="$($RemoveTags)";
+                         "Action"="Remove";
+                       }
+ 
+                       $RemoveUrl = @()
+                       $RemoveUrl = https://api.securitycenter.windows.com/api/machines/$($RemoveMachineId)/tags
+ 
+       
+                       $RemoveResponse = @()
+                       $RemoveResponse = Invoke-WebRequest -Method Post -Uri $RemoveUrl -Headers $headers -Body ($RemoveBody|ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
+           
+               $RemoveTags = $null;
+           }
+           
+           ###########
+           # Add TAG #
+           ###########
+ 
+           $AddMachineId = @()
+           $AddMachineId = $currentDevices.id;
+   
+           $AddBody = @()
+           $AddBody = @{
+             "Value"="$($MachineSO)";
+             "Action"="Add";
+           }   
+ 
+           $AddUrl = @()
+           $AddUrl = https://api.securitycenter.windows.com/api/machines/$($AddMachineId)/tags
+       
+           $AddResponse = @()
+           $AddResponse = Invoke-WebRequest -Method Post -Uri $AddUrl -Headers $headers -Body ($AddBody|ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
+           Write-Host "--> Add TAG: $($MachineSO)" -ForegroundColor Yellow
+ 
+       }
+       else
+       {
+           Write-Host "[$Contador] - Manter TAG - $($currentDevices.machineTags) - MachineName:$MachineName|$($currentDevices.computerDnsName) - IP:$MachineIp." -ForegroundColor Green
+       }
+ 
+   $Id   = $null;
+   $Message = $null;
+   $MachineName = $null;
+   $MachineDns = $null;
+   $MachineStatus = $null;
+   $MachineLastSeen = $null;
+   $isDuplicate = $null;
+   $MachineSO = $null;
+   $MachineSOv = $null;
+   $MachineIp = $null;
+   $MachineTipo = $null;
+   $mdatpId = $null;
+}
+ 
+ 
+ 
+##############################################################################################################################################################
+######## Remover TAG
+##############################################################################################################################################################
+ 
+ 
+$ContadorMdatpId = 0
+$Contador = 0
+ 
+$NoConnectivity | % {
+   $Contador++
+   Start-Sleep -Seconds 0.5
+   
+   $Id   = $($_.Id);
+   $Message = $($_.Message);
+   $MachineName = $($_.MachineName);
+   $MachineDns = $($_.MachineDns);
+   $MachineStatus = $($_.MachineStatus);
+   $MachineLastSeen = $($_.MachineLastSeen);
+   $isDuplicate = $($_.isDuplicate);
+   $MachineSO = $($_.MachineSO);
+   $MachineSOv = $($_.MachineSOv);
+   $MachineIp = $($_.MachineIp);
+   $MachineTipo = $($_.MachineTipo);
+   $mdatpId = $($_.mdatpId);
+ 
+       
+ 
+   $mdatpId | % {
+       $ContadorMdatpId++
+       $mdatpIds = $($_).Split(",");
+           
+       $currentDevices = @()
+       $currentDevices = $devices | where {($_.Id -eq $mdatpIds)}
+       Write-Host "$ContadorMdatpId - [$MachineName] - $mdatpIds"
+ 
+       $totalRowsDevice = $currentDevices.Count
+       
+ 
+       if ($currentDevices.machineTags -eq $null)
+       {
+           Write-Host "[$Contador] - TAG vazia - TAG:$($currentDevices.machineTags) - MachineName:$MachineName - IP:$MachineIp."  -ForegroundColor Cyan
+           ###########
+           # Add TAG #
+           ###########
+           $DoubleLabel = @()
+           $DoubleLabel = "$MachineSO,NoConnectivity".Split(",")
+ 
+           $DoubleLabel | %{
+               $AddMachineId = @()
+               $AddMachineId = $currentDevices.id;
+               $AddTags = $($_);
+               Write-Host "--> Add TAG: $AddTags"  -ForegroundColor Cyan
+ 
+                       $AddBody = @()
+                       $AddBody = @{
+                         "Value"="$($AddTags)";
+                         "Action"="Add";
+                       }
+ 
+                       $AddUrl = @()
+                       $AddUrl = https://api.securitycenter.windows.com/api/machines/$($AddMachineId)/tags
+ 
+       
+                       $AddResponse = @()
+                       $AddResponse = Invoke-WebRequest -Method Post -Uri $AddUrl -Headers $headers -Body ($AddBody|ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
+           
+               $AddTags = $null;
+           }
+ 
+ 
+       }
+       else
+       {
+           Write-Host "[$Contador] - Limpar TAG - TAG:$MachineSO - MachineName:$MachineName - IP:$MachineIp."  -ForegroundColor Yellow
+           ##############
+           # Remove TAG #
+           ##############
+           $($currentDevices.machineTags) | %{
+               $RemoveMachineId = @()
+               $RemoveMachineId = $currentDevices.id;
+               $RemoveTags = $($_);
+               Write-Host "--> Limpar TAG: $RemoveTags"  -ForegroundColor Yellow
+ 
+                       $RemoveBody = @()
+                       $RemoveBody = @{
+                         "Value"="$($RemoveTags)";
+                         "Action"="Remove";
+                       }
+ 
+                       $RemoveUrl = @()
+                       $RemoveUrl = https://api.securitycenter.windows.com/api/machines/$($RemoveMachineId)/tags
+ 
+       
+                       $RemoveResponse = @()
+                       $RemoveResponse = Invoke-WebRequest -Method Post -Uri $RemoveUrl -Headers $headers -Body ($RemoveBody|ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
+           
+               $RemoveTags = $null;
+           }
+           ###########
+           # Add TAG #
+           ###########
+           $DoubleLabel = @()
+           $DoubleLabel = "$MachineSO,NoConnectivity".Split(",")
+ 
+           $DoubleLabel | %{
+               $AddMachineId = @()
+               $AddMachineId = $currentDevices.id;
+               $AddTags = $($_);
+               Write-Host "--> Add TAG: $AddTags"  -ForegroundColor Yellow
+ 
+                       $AddBody = @()
+                       $AddBody = @{
+                         "Value"="$($AddTags)";
+                         "Action"="Add";
+                       }
+ 
+                       $AddUrl = @()
+                       $AddUrl = https://api.securitycenter.windows.com/api/machines/$($AddMachineId)/tags
+ 
+       
+                       $AddResponse = @()
+                       $AddResponse = Invoke-WebRequest -Method Post -Uri $AddUrl -Headers $headers -Body ($AddBody|ConvertTo-Json) -ContentType "application/json" -ErrorAction Stop
+           
+               $AddTags = $null;
+           }
+       }
+           
+   }
+ 
+   $Id   = $null;
+   $Message = $null;
+   $MachineName = $null;
+   $MachineDns = $null;
+   $MachineStatus = $null;
+   $MachineLastSeen = $null;
+   $isDuplicate = $null;
+   $MachineSO = $null;
+   $MachineSOv = $null;
+   $MachineIp = $null;
+   $MachineTipo = $null;
+}
+ 
+ 
+##############################################################################################################################################################
+ 
+Write-Host "9. Informação - Gerenciamento de tags finalizado."
+LOG1 "9. Informação - Gerenciamento de tags finalizado."
+ 
+##############################################################################################################################################################
+ 
+#################
+# Tabela Geral #
+#################
+ 
+$Linux.count
+$NotInstalled.count
+$NoConnectivity.count
+$Active.count
+ 
+$TabelaGeral = @()
+$TabelaGeral = 'TabelaGeral' | Select-Object @{l='Servidores';e={'Linux & Windows'}},@{l='Total';e={$Data.count}},@{l='NotInstalled';e={$([int]($NotInstalled.count))}},@{l='NoConnectivity';e={$([int]($NoConnectivity.count))}},@{l='Active';e={$([int]($Active.count))}}
+ 
+$TabelaLinux = @()
+$TabelaLinux = 'TabelaLinux' | Select-Object @{l='Servidores';e={'Linux'}},@{l='Total';e={$Linux.count}},@{l='NotInstalled';e={$([int]($NotInstalled |? {($_.MachineSO -like "*Linux*")}).count)}},@{l='NoConnectivity';e={$([int]($NoConnectivity |? {($_.MachineSO -like "*Linux*")}).count)}},@{l='Active';e={$([int]($Active |? {($_.MachineSO -like "*Linux*")}).count)}}
+ 
+$TabelaWindows = @()
+$TabelaWindows = 'TabelaWindows' | Select-Object @{l='Servidores';e={'Windows'}},@{l='Total';e={$Windows.count}},@{l='NotInstalled';e={$([int]($NotInstalled |? {($_.MachineSO -like "*Windows*")}).count)}},@{l='NoConnectivity';e={$([int]($NoConnectivity |? {($_.MachineSO -like "*Windows*")}).count)}},@{l='Active';e={$([int]($Active |? {($_.MachineSO -like "*Windows*")}).count)}}
+ 
+$Dashboard = @()
+$Dashboard += $TabelaGeral
+$Dashboard += $TabelaLinux
+$Dashboard += $TabelaWindows
+$Dashboard | ft -AutoSize
+ 
+#################
+# Exportar HTML #
+#################
+ 
+$Dashboard | ConvertTo-Html -Property Servidores,Total,NotInstalled,NoConnectivity,Active -Head $Header | Out-File -FilePath $($Diretorio +'\bkp\' + "$dataColeta" + '_' +"Dashboard_DefenderMachineServers" + '.html')
+$NotInstalled | ConvertTo-Html -Property Id,MachineName,@{l='MachineStatus';e={$_.Message}},MachineSO,MachineSOv,MachineIp,@{l='mdatpId';e={'Null'}} -Head $Header | Out-File -FilePath $($Diretorio +'\bkp\' + "$dataColeta" + '_' +"NotInstalled_DefenderMachineServers" + '.html')
+$Active | ConvertTo-Html -Property Id,MachineName,MachineStatus,MachineLastSeen,isDuplicate,MachineSO,MachineIp,mdatpId -Head $Header | Out-File -FilePath $($Diretorio +'\bkp\' + "$dataColeta" + '_' +"Active_DefenderMachineServers" + '.html')
+$NoConnectivity | ConvertTo-Html -Property Id,MachineName,MachineStatus,MachineLastSeen,isDuplicate,MachineSO,MachineIp,mdatpId -Head $Header | Out-File -FilePath $($Diretorio +'\bkp\' + "$dataColeta" + '_' +"NoConnectivity_DefenderMachineServers" + '.html')
+ 
+ 
+#################
+# Exportar Csv #
+#################
+ 
+$Dashboard | ConvertTo-Html -Property Servidores,Total,NotInstalled,NoConnectivity,Active | Export-Csv $($Diretorio +'\bkp\' + "$dataColeta" + '_' + "Dashboard_DefenderMachineServers" + '.csv')
+$NotInstalled | Select-Object Id,MachineName,@{l='MachineStatus';e={$_.Message}},MachineSO,MachineSOv,MachineIp,@{l='mdatpId';e={'Null'}} | Export-Csv $($Diretorio +'\bkp\' + "$dataColeta" + '_' + "NotInstalled_DefenderMachineServers" + '.csv')
+$Active | Select-Object Id,MachineName,MachineStatus,MachineLastSeen,isDuplicate,MachineSO,MachineSOv,MachineIp,mdatpId | Export-Csv $($Diretorio +'\bkp\' + "$dataColeta" + '_' + "Active_DefenderMachineServers" + '.csv')
+$NoConnectivity | Select-Object Id,MachineName,MachineStatus,MachineLastSeen,isDuplicate,MachineSO,MachineSOv,MachineIp,mdatpId | Export-Csv $($Diretorio +'\bkp\' + "$dataColeta" + '_' + "NoConnectivity_DefenderMachineServers" + '.csv')
+ 
+ 
+ 
+#########################################################################################################################################################################################
+# 2. Export Html and Send Mail for **All** Groups
+#########################################################################################################################################################################################
+ 
+# Mensagem A ser encaminhada
+$MsgGeral = "<font size='2,5' face='Segoe UI'>
+<p>Prezados</p>
+<p> Abaixo está o report de proteção do Defender para os servidores ATIVOS no parque computacional. Estes servidores possuem 3 (três) critérios de avaliação.</p>
+<p>
+<ol>
+<li><b>NotInstalled:</b> Máquinas sem o agente mdatp; (Não Integradas)</li>
+<li><b>NoConnectivity:</b> Máquinas sem comunicação do agente mdatp nas últimas 24hrs; (Integradas, mas sem conectividade com a Microsoft)</li>
+<li><b>Active:</b> Máquinas com o agente instalado e comunicando; (Integradas e comunicando com a Microsoft)</li>
+</ol>
+</p>
+<p> Analise a informação, verifique se o servidor deve ou não possuir o Antivírus 'Windows Defender', caso *não* esteja de acordo informe a TI. Se você está de acordo ignore esta mensagem.</p>
+<p><b> Esta mensagem foi gerada automaticamente.</b></p>
+</font>"
+ 
+ 
+# SendMail All
+$HtmlAll=Get-Content -Path $($Diretorio +'\bkp\' + "$dataColeta" + '_' +"Dashboard_DefenderMachineServers" + '.html') -Raw
+$subjectAll = "TI - Relatorio de controle do Antivirus - Servidores"
+$bodyAll = $MsgGeral + $HtmlAll
+Send-MailMessage -smtpserver $smtpserver -from $from -to $To -subject $subjectAll -body $bodyAll -bodyashtml -Encoding ([System.Text.Encoding]::UTF8) -Attachments $($Diretorio +'\bkp\' + "$dataColeta" + '_' + "NotInstalled_DefenderMachineServers" + '.csv'),$($Diretorio +'\bkp\' + "$dataColeta" + '_' + "NoConnectivity_DefenderMachineServers" + '.csv')
+ 
+LOG1 "10. Máquinas sem o agente mdatp; (Não Integradas): -->'$([int]($NotInstalled.count))'."
+LOG1 "11. Máquinas sem comunicação do agente mdatp nas últimas 24hrs; (Integradas, mas sem conectividade com a Microsoft) -->'$([int]($NoConnectivity.count))'."
+LOG1 "12. Máquinas com o agente instalado e comunicando; (Integradas e comunicando com a Microsoft) -->'$([int]($Active.count))'."
+LOG1 "13. Fim do Script."
