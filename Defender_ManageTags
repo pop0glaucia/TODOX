@@ -122,7 +122,6 @@ LOG1 "1. Informação - [$([int]$Data.count)] - Total de servidores aptos a rece
 LOG1 "2. Informação - [$([int]$Linux.count)] - Total de servidores ..Linux.. aptos a receber a TAG."
 LOG1 "3. Informação - [$([int]$Windows.count)] - Total de servidores ..Windows.. aptos a receber a TAG."
  
- 
 ##############################################################################################################################################################
 # Criar Função de Get-AllDevices
 ##############################################################################################################################################################
@@ -155,7 +154,6 @@ Function Get-AllDevices($Status)
  
    return $devices
 }
- 
  
  
 $devices = Get-AllDevices -Status "Onboarded"
@@ -404,17 +402,12 @@ Write-Host "7. Informação - [$([int]$NoConnectivity.count)] - Total de servido
 LOG1 "6. Informação - [$([int]$Active.count)] - Total de servidores ativos no Defender Endpoint [-] Total de mquina Duplicadas:[$([int]($Active | ?{($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate).Count)]"
 LOG1 "7. Informação - [$([int]$NoConnectivity.count)] - Total de servidores inativos no Defender Endpoint [-] Total de mquina Duplicadas:[$([int]($NoConnectivity | ? {($_.isDuplicate -gt 1)} | Measure-Object -Property isDuplicate).Count)]"
  
- 
 ##############################################################################################################################################################
 # Gerenciando TAGs
 ##############################################################################################################################################################
  
 Write-Host "8. Informação - Aguarde......Gerenciando tags."
 LOG1 "8. Informação - Aguarde......Gerenciando tags."
- 
-##############################################################################################################################################################
-######## Aplicar TAG
-##############################################################################################################################################################
  
 ##############################################################################################################################################################
 ######## Aplicar TAG
@@ -539,11 +532,9 @@ $Active | ? {($_.isDuplicate -eq '0')} | % {
 }
  
  
- 
 ##############################################################################################################################################################
 ######## Remover TAG
 ##############################################################################################################################################################
- 
  
 $ContadorMdatpId = 0
 $Contador = 0
@@ -723,7 +714,6 @@ $NotInstalled | ConvertTo-Html -Property Id,MachineName,@{l='MachineStatus';e={$
 $Active | ConvertTo-Html -Property Id,MachineName,MachineStatus,MachineLastSeen,isDuplicate,MachineSO,MachineIp,mdatpId -Head $Header | Out-File -FilePath $($Diretorio +'\bkp\' + "$dataColeta" + '_' +"Active_DefenderMachineServers" + '.html')
 $NoConnectivity | ConvertTo-Html -Property Id,MachineName,MachineStatus,MachineLastSeen,isDuplicate,MachineSO,MachineIp,mdatpId -Head $Header | Out-File -FilePath $($Diretorio +'\bkp\' + "$dataColeta" + '_' +"NoConnectivity_DefenderMachineServers" + '.html')
  
- 
 #################
 # Exportar Csv #
 #################
@@ -754,7 +744,7 @@ $MsgGeral = "<font size='2,5' face='Segoe UI'>
 <p><b> Esta mensagem foi gerada automaticamente.</b></p>
 </font>"
  
- 
+
 # SendMail All
 $HtmlAll=Get-Content -Path $($Diretorio +'\bkp\' + "$dataColeta" + '_' +"Dashboard_DefenderMachineServers" + '.html') -Raw
 $subjectAll = "TI - Relatorio de controle do Antivirus - Servidores"
