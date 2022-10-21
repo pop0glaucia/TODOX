@@ -98,7 +98,7 @@ function Get-MessageClientProtocol
 Write-Host "Testar dados do coletor MessageTrackingLog"
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-$MbxTeste = Get-Mailbox -RecipientTypeDetails UserMailbox -Resultsize Unlimited | % {
+$MbxTeste = Get-Mailbox -ResultSize 12 | % {
         $UserPrincipalName = "$($_.UserPrincipalName)";
         $PrimarySmtpAddress = "$($_.PrimarySmtpAddress)";
         $RecipientTypeDetails = "$($_.RecipientTypeDetails)";
@@ -136,7 +136,16 @@ foreach ($Teste in $MbxTeste) {
     $PrimarySmtpAddress = @($Teste.PrimarySmtpAddress);
     $LastLogonTime = @($Teste.LastLogonTime);
 
-    if (!(Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Server $Server -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited  | Get-MessageClientType ))
+    if (!(Get-MessageTrackingLog -Server $Server -Start (get-date).AddDays(-[int]$Date) -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Select-Object `
+            @{N='TimeStamp'; E={$_.TimeStamp}} ,      
+            @{N='Sender'; E={$_.Sender}},            
+            @{N='Recipients'; E={$_.Recipients}},   
+            @{N='MessageSubject'; E={$_.MessageSubject}},
+            @{N='EventId'; E={$_.EventId}},
+            @{N='ServerIp'; E={$_.ServerIp}},
+            @{N='ClientIp'; E={$_.ClientIp}},             
+            @{N='ClientType'; E={$_.ClientType}},
+            @{N='SourceContext'; E={$_.SourceContext}} | Get-MessageClientType ))
     {  
         $PrimarySmtpAddress | Select-Object `
             @{N='ProgressColeta'; E={$("$([String]$Contador++)" + '..de..' + "$Total")}},
@@ -153,10 +162,19 @@ foreach ($Teste in $MbxTeste) {
     }
     else
     {
-        Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Server $Server -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited  | Get-MessageClientType | Select-Object @{N='ProgressColeta'; E={$("$([int]$Contador++)" + '..de..' + "$Total")}},*,@{N='Note'; E={'A caixa ENVIOU mensagens utilizando uma conexao HTTPS'}},@{N='MailboxLogon'; E={$($LastLogonTime)}} | ft -AutoSize ProgressColeta,TimeStamp,Sender,Recipients,MessageSubject,ClientType,Note,MailboxLogon
+        Get-MessageTrackingLog -Server $Server -Start (get-date).AddDays(-[int]$Date) -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Select-Object `
+            @{N='TimeStamp'; E={$_.TimeStamp}} ,      
+            @{N='Sender'; E={$_.Sender}},            
+            @{N='Recipients'; E={$_.Recipients}},   
+            @{N='MessageSubject'; E={$_.MessageSubject}},
+            @{N='EventId'; E={$_.EventId}},
+            @{N='ServerIp'; E={$_.ServerIp}},
+            @{N='ClientIp'; E={$_.ClientIp}},             
+            @{N='ClientType'; E={$_.ClientType}},
+            @{N='SourceContext'; E={$_.SourceContext}} | Get-MessageClientType  | ? {($_.EventId -notlike 'SUBMITDEFER')}  | Select-Object @{N='ProgressColeta'; E={$("$([int]$Contador++)" + '..de..' + "$Total")}},*,@{N='Note'; E={'A caixa ENVIOU mensagens utilizando uma conexao HTTPS'}},@{N='MailboxLogon'; E={$($LastLogonTime)}} | ft -AutoSize ProgressColeta,TimeStamp,Sender,Recipients,MessageSubject,ClientType,Note,MailboxLogon
     }
 
-    if (!(Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Server $Server -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Get-MessageClientProtocol ))
+    if (!(Get-MessageTrackingLog -Server $Server -Start (get-date).AddDays(-[int]$Date) -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Select-Object *  | Get-MessageClientProtocol ))
     {
         $PrimarySmtpAddress | Select-Object `
             @{N='ProgressColeta'; E={$("$([String]$Contador++)" + '..de..' + "$Total")}},
@@ -173,7 +191,7 @@ foreach ($Teste in $MbxTeste) {
     }
     else
     {
-        Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Server $Server -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited  | Get-MessageClientProtocol  | Select-Object @{N='ProgressColeta'; E={$("$([int]$Contador++)" + '..de..' + "$Total")}},*,@{N='Note'; E={'A caixa ENVIOU mensagens utilizando uma conexao IMAP, POP or SMTP'}},@{N='MailboxLogon'; E={$($LastLogonTime)}} | ft -AutoSize ProgressColeta,TimeStamp,Sender,Recipients,MessageSubject,ClientType,Note,MailboxLogon
+        Get-MessageTrackingLog -Server $Server -Start (get-date).AddDays(-[int]$Date) -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Select-Object * | Get-MessageClientProtocol  | Select-Object @{N='ProgressColeta'; E={$("$([int]$Contador++)" + '..de..' + "$Total")}},*,@{N='Note'; E={'A caixa ENVIOU mensagens utilizando uma conexao IMAP, POP or SMTP'}},@{N='MailboxLogon'; E={$($LastLogonTime)}} | ft -AutoSize ProgressColeta,TimeStamp,Sender,Recipients,MessageSubject,ClientType,Note,MailboxLogon
     }
 }
 
@@ -181,9 +199,9 @@ foreach ($Teste in $MbxTeste) {
 # Coleta Finalizada
 Write-Host "Teste - Coleta .. Finalizada"
 
-#Get-ExchangeServer | Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Sender joao.santos@servicein.tec.br -ResultSize Unlimited  | Get-MessageClientType | ft -AutoSize
-#Get-ExchangeServer | Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Sender "NO-REPLY@SERVICEIN.TEC.BR" -ResultSize Unlimited  | Get-MessageClientType | ft -AutoSize
-#Get-ExchangeServer | Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Sender "NO-REPLY@SERVICEIN.TEC.BR" -ResultSize Unlimited  | Get-MessageClientProtocol | ft -AutoSize
+#Get-ExchangeServer | Get-MessageTrackingLog -Start "10/20/2022 0:01:00 AM" -Sender joao.santos@servicein.tec.br -ResultSize Unlimited  | Get-MessageClientType  | ? {($_.EventId -notlike 'SUBMITDEFER')}  | ft -AutoSize
+#Get-ExchangeServer | Get-MessageTrackingLog -Start "10/20/2022 0:01:00 AM" -Sender NO-REPLY@SERVICEIN.TEC.BR -ResultSize Unlimited  | Get-MessageClientType  | ? {($_.EventId -notlike 'SUBMITDEFER')}  | ft -AutoSize
+#Get-ExchangeServer | Get-MessageTrackingLog -Start "10/20/2022 0:01:00 AM" -Sender NO-REPLY@SERVICEIN.TEC.BR -ResultSize Unlimited  | Get-MessageClientProtocol | ft -AutoSize
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Ler: https://learn.microsoft.com/en-us/previous-versions/tn-archive/cc539064(v=technet.10)?redirectedfrom=MSDN
@@ -215,7 +233,16 @@ foreach ($Mailbox in $Lista) {
     
     Write-Host "Total de Caixas de Correio $([int]$Total) - $('Inicando coleta .. -> '+ "$([String]$ContadorFull++)" + '..de..' + "$Total")"
 
-    if (!(Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Server $Server -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited  | Get-MessageClientType ))
+    if (!(Get-MessageTrackingLog -Server $Server -Start (get-date).AddDays(-[int]$Date) -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Select-Object `
+            @{N='TimeStamp'; E={$_.TimeStamp}} ,      
+            @{N='Sender'; E={$_.Sender}},            
+            @{N='Recipients'; E={$_.Recipients}},   
+            @{N='MessageSubject'; E={$_.MessageSubject}},
+            @{N='EventId'; E={$_.EventId}},
+            @{N='ServerIp'; E={$_.ServerIp}},
+            @{N='ClientIp'; E={$_.ClientIp}},             
+            @{N='ClientType'; E={$_.ClientType}},
+            @{N='SourceContext'; E={$_.SourceContext}} | Get-MessageClientType ))
     {  
         $Arr1 = $PrimarySmtpAddress | Select-Object `
             @{N='ProgressColeta'; E={$("$([String]$Contador++)" + '..de..' + "$Total")}},
@@ -233,7 +260,17 @@ foreach ($Mailbox in $Lista) {
     }
     else
     {
-        $Arr2 = Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Server $Server -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited  | Get-MessageClientType | Select-Object `
+        $Arr2 = Get-MessageTrackingLog -Server $Server -Start (get-date).AddDays(-[int]$Date) -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Select-Object `
+            @{N='TimeStamp'; E={$_.TimeStamp}} ,      
+            @{N='Sender'; E={$_.Sender}},            
+            @{N='Recipients'; E={$_.Recipients}},   
+            @{N='MessageSubject'; E={$_.MessageSubject}},
+            @{N='EventId'; E={$_.EventId}},
+            @{N='ServerIp'; E={$_.ServerIp}},
+            @{N='ClientIp'; E={$_.ClientIp}},             
+            @{N='ClientType'; E={$_.ClientType}},
+            @{N='SourceContext'; E={$_.SourceContext}} `
+            | Get-MessageClientType  | ? {($_.EventId -notlike 'SUBMITDEFER')}  | Select-Object `
             @{N='ProgressColeta'; E={$("$([int]$Contador++)" + '..de..' + "$Total")}},
             *,
             @{N='Note'; E={'A caixa ENVIOU mensagens utilizando uma conexao HTTPS'}},
@@ -241,7 +278,7 @@ foreach ($Mailbox in $Lista) {
         $Report += $Arr2
     }
 
-    if (!(Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Server $Server -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Get-MessageClientProtocol ))
+    if (!(Get-MessageTrackingLog -Server $Server -Start (get-date).AddDays(-[int]$Date) -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Select-Object *  | Get-MessageClientProtocol ))
     {
         $Arr3 = $PrimarySmtpAddress | Select-Object `
             @{N='ProgressColeta'; E={$("$([String]$Contador++)" + '..de..' + "$Total")}},
@@ -259,7 +296,7 @@ foreach ($Mailbox in $Lista) {
     }
     else
     {
-        $Arr4 = Get-MessageTrackingLog -Start "9/1/2022 0:01:00 AM" -Server $Server -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited  | Get-MessageClientProtocol  | Select-Object `
+        $Arr4 = Get-MessageTrackingLog -Server $Server -Start (get-date).AddDays(-[int]$Date) -Sender "$($PrimarySmtpAddress)" -ResultSize Unlimited | Select-Object *   | Get-MessageClientProtocol  | Select-Object `
         @{N='ProgressColeta'; E={$("$([int]$Contador++)" + '..de..' + "$Total")}},
         *,
         @{N='Note'; E={'A caixa ENVIOU mensagens utilizando uma conexao IMAP, POP or SMTP'}},
@@ -318,4 +355,4 @@ Write-Host "Coleta Full - Export FINALIZADO"
 
 
 
-#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- 
