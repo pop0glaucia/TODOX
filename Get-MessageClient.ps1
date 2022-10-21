@@ -199,9 +199,9 @@ foreach ($Teste in $MbxTeste) {
 # Coleta Finalizada
 Write-Host "Teste - Coleta .. Finalizada"
 
-#Get-ExchangeServer | Get-MessageTrackingLog -Start "10/20/2022 0:01:00 AM" -Sender joao.santos@servicein.tec.br -ResultSize Unlimited  | Get-MessageClientType  | ? {($_.EventId -notlike 'SUBMITDEFER')}  | ft -AutoSize
-#Get-ExchangeServer | Get-MessageTrackingLog -Start "10/20/2022 0:01:00 AM" -Sender NO-REPLY@SERVICEIN.TEC.BR -ResultSize Unlimited  | Get-MessageClientType  | ? {($_.EventId -notlike 'SUBMITDEFER')}  | ft -AutoSize
-#Get-ExchangeServer | Get-MessageTrackingLog -Start "10/20/2022 0:01:00 AM" -Sender NO-REPLY@SERVICEIN.TEC.BR -ResultSize Unlimited  | Get-MessageClientProtocol | ft -AutoSize
+#Get-ExchangeServer | Get-MessageTrackingLog -Start "10/20/2022 0:01:00 AM" -Sender joao.santos@CONTOSO.COM -ResultSize Unlimited  | Get-MessageClientType  | ? {($_.EventId -notlike 'SUBMITDEFER')}  | ft -AutoSize
+#Get-ExchangeServer | Get-MessageTrackingLog -Start "10/20/2022 0:01:00 AM" -Sender NO-REPLY@CONTOSO.COM -ResultSize Unlimited  | Get-MessageClientType  | ? {($_.EventId -notlike 'SUBMITDEFER')}  | ft -AutoSize
+#Get-ExchangeServer | Get-MessageTrackingLog -Start "10/20/2022 0:01:00 AM" -Sender NO-REPLY@CONTOSO.COM -ResultSize Unlimited  | Get-MessageClientProtocol | ft -AutoSize
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # Ler: https://learn.microsoft.com/en-us/previous-versions/tn-archive/cc539064(v=technet.10)?redirectedfrom=MSDN
