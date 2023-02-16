@@ -1,4 +1,4 @@
-﻿
+
 $ServerSearch = 'SRV-EXCH13-01','SRV-EXCH13-02'
 
 $ServerSearch | % {
