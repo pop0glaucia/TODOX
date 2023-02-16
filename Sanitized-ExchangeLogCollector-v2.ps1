@@ -1,4 +1,4 @@
-﻿
+
 Write-Host "############################################"
 Write-Host "Run this script in mode administrative"
 Write-Host "############################################"
