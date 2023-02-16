@@ -1,10 +1,20 @@
-
+#######################################################################################################
+# WinRM - Remote Conections
+#######################################################################################################
+<#
 $ServerSearch = 'SRV-EXCH13-01','SRV-EXCH13-02'
-
 $ServerSearch | % {
     $RemoteSession = New-PSSession -ComputerName $ServerSearch
 }
+#>
+#######################################################################################################
+# Local Conections
+#######################################################################################################
 
+$ComputerName = "ComputerName"
+$ServerSearch = 'ComputerName','SRV-EXCH13-01','SRV-EXCH13-02'
+$RemoteSession = ($ServerSearch | Select-Object -Skip 1 | ConvertFrom-CSV -Header $ComputerName)
+#######################################################################################################
 
 $Folder  = [String](Get-Date -Format yyyyMd)
 $zipFolder  = [String](Get-Date -Format Md)
