@@ -17,16 +17,15 @@ $RemoteSession = ($ServerSearch | Select-Object -Skip 1 | ConvertFrom-CSV -Heade
 #######################################################################################################
 
 $Folder  = [String](Get-Date -Format yyyyMd)
-$zipFolder  = [String](Get-Date -Format Md)
 
 $Contador = 0
 
 $RemoteSession | % {
     $Contador++
 
-    Copy-Item -FromSession $($_) –Path "$('D:\ExchangeLogCollector\' + $Folder + '\' + $_.ComputerName + '-' + $zipFolder + '.zip')" –Destination "$('D:\ExchangeLogCollector\' + $Folder + '\')" 
-    Expand-Archive -path "$('D:\ExchangeLogCollector\' + $Folder + '\' + $_.ComputerName + '-' + $zipFolder + '.zip')" -destinationpath "$('D:\ExchangeLogCollector\' + $Folder + '\' + $_.ComputerName + '-' + $zipFolder)"
-    $Archives = Get-ChildItem "$('D:\ExchangeLogCollector\' + $Folder + '\' + $_.ComputerName + '-' + $zipFolder)" | ? {($_.Name -like "*.zip")}
+    Copy-Item -FromSession $($_) –Path "$('D:\ExchangeLogCollector\' + $Folder + '\' + $_.ComputerName + '.zip')" –Destination "$('D:\ExchangeLogCollector\' + $Folder + '\')" 
+    Expand-Archive -path "$('D:\ExchangeLogCollector\' + $Folder + '\' + $_.ComputerName + '.zip')" -destinationpath "$('D:\ExchangeLogCollector\' + $Folder + '\' + $_.ComputerName)"
+    $Archives = Get-ChildItem "$('D:\ExchangeLogCollector\' + $Folder + '\' + $_.ComputerName)" | ? {($_.Name -like "*.zip")}
     
     foreach($Archive in $Archives){
         $FullName = $($Archive.FullName)
