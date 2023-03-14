@@ -3,8 +3,11 @@ Write-Host "############################################"
 Write-Host "Run this script in mode administrative"
 Write-Host "############################################"
 
+[System.Reflection.Assembly]::LoadWithPartialName('Microsoft.VisualBasic') | Out-Null
+$ServerSearch = [Microsoft.VisualBasic.Interaction]::InputBox('Quais servidores Exchange receberam a coleta. Exemplo:', 'Exchange Servers', "'SRV-EXCH-01','SRV-EXCH-02'")
+$ServerSearch = $(($ServerSearch -split ",") -replace "'",'')
 
-$ServerSearch = 'SRV-EXCH13-01','SRV-EXCH13-02'
+$DirPath = [Microsoft.VisualBasic.Interaction]::InputBox('Informe o diretorio onde o dados serao descompactados. O diretório não pode ser uma subpasta. Siga o Exemplo:', 'Decompress Path', "D:\ExchangeLogCollector")
 
 $Folder  = [String](Get-Date -Format yyyyMd)
 $zipFolder  = [String](Get-Date -Format Md)
@@ -13,7 +16,7 @@ $ProtocolPath = @()
 
 $ServerSearch | %{
 
-    $ProtocolPath += Get-ChildItem "$('D:\ExchangeLogCollector\' + $Folder + '\' + $($_) + '-' + $zipFolder)" | ? {($_.Name -notlike "*.zip") -and (($_.Name -notlike 'Windows_Event_Logs') -and ($_.Name -notlike "*.txt") -and ($_.Name -notlike "*.xml"))}
+    $ProtocolPath += Get-ChildItem "$($DirPath + '\' + $Folder + '\' + $($_) + '-' + $zipFolder)" | ? {($_.Name -notlike "*.zip") -and (($_.Name -notlike 'Windows_Event_Logs') -and ($_.Name -notlike "*.txt") -and ($_.Name -notlike "*.xml"))}
 }
 
 
@@ -76,7 +79,7 @@ $logs | % {
 
 }
 $Directory = @()
-$Directory = Get-ChildItem -Path 'D:\ExchangeLogCollector\Sanitized\' | ? {(($_.Name -like "*W3SVC*") -or ($_.Name -like "*HTTPERR*"))} | Select-Object FullName,Name
+$Directory = Get-ChildItem -Path $($DirPath + '\Sanitized\') | ? {(($_.Name -like "*W3SVC*") -or ($_.Name -like "*HTTPERR*"))} | Select-Object FullName,Name
 
 $Directory | % {
     $Path = [String]@($_.FullName)
@@ -84,15 +87,15 @@ $Directory | % {
     
     if ($Name -like "*W3SVC*")
     {
-    New-Item -ItemType Directory -Path 'D:\ExchangeLogCollector\Sanitized\IISLogs\' -ErrorAction SilentlyContinue
-    Move-Item -Path $Path -Destination 'D:\ExchangeLogCollector\Sanitized\IISLogs\'
-    Write-Host "Move Directory $($Name) to 'D:\ExchangeLogCollector\Sanitized\IISLogs\"
+    New-Item -ItemType Directory -Path $($DirPath + '\Sanitized\IISLogs\') -ErrorAction SilentlyContinue
+    Move-Item -Path $Path -Destination $($DirPath + '\Sanitized\IISLogs\')
+    Write-Host "Move Directory $($Name) to '$($DirPath + '\Sanitized\IISLogs\')"
     }
     else
     {
-    New-Item -ItemType Directory -Path 'D:\ExchangeLogCollector\Sanitized\RpcLogs\' -ErrorAction SilentlyContinue
-    Move-Item -Path $Path -Destination 'D:\ExchangeLogCollector\Sanitized\RpcLogs\'
-    Write-Host "Move Directory $($Name) to 'D:\ExchangeLogCollector\Sanitized\RpcLogs\"
+    New-Item -ItemType Directory -Path $($DirPath + '\Sanitized\RpcLogs\') -ErrorAction SilentlyContinue
+    Move-Item -Path $Path -Destination $($DirPath + '\Sanitized\RpcLogs\')
+    Write-Host "Move Directory $($Name) to '$($DirPath + '\Sanitized\RpcLogs\')"
     }
 }
 
