@@ -1,3 +1,7 @@
+Write-Host "############################################"
+Write-Host "Run this script in mode administrative"
+Write-Host "############################################"
+
 [System.Reflection.Assembly]::LoadWithPartialName('Microsoft.VisualBasic') | Out-Null
 [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
 
@@ -69,3 +73,7 @@ $RemoteSession | % {
     }
 
 } 
+
+Write-Host "############################################"
+Write-Host "Finish"
+Write-Host "############################################"
