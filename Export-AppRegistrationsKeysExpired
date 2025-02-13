@@ -21,10 +21,13 @@ function Get-AppPermissionsWithOwner {
 
         if ($app) {
             # Obter os proprietários do aplicativo
-            $owners = Get-MgApplicationOwner -ApplicationId $app.Id | Select-Object DisplayName, UserPrincipalName, Id
+            $owners    = @()
+            $owners    = Get-MgApplicationOwner -ApplicationId $app.Id
+            $Username  = @()
+            $Username  = $owners.AdditionalProperties.userPrincipalName -join ';'
 
             # Criar string formatada com os Owners
-            $ownerNames = if ($owners) { ($owners | ForEach-Object { $_.DisplayName }) -join ", " } else { "N/A" }
+            $ownerNames = if ($Username) { ($Username | ForEach-Object { $($_) }) -join ", " } else { "N/A" }
 
             $permissions = $app.RequiredResourceAccess
 
