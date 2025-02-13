@@ -7,7 +7,6 @@ Connect-MgGraph -Scopes "Application.Read.All", "Directory.Read.All"
 # Criar funcao de coleta da Permissão
 #--------------------------------------------------------------------------------------------------------------------------------------------
 
-<#
 function Get-AppPermissionsWithOwner {
     param (
         [Parameter(Mandatory = $true)]
@@ -78,8 +77,6 @@ function Get-AppPermissionsWithOwner {
 
     return $allPermissions
 }
-
-#>
 
 
 #--------------------------------------------------------------------------------------------------------------------------------------------
@@ -182,20 +179,6 @@ foreach ($App in $Applications) {
 
     $Roles = @()
     $Roles = Get-AppPermissionsWithOwner -AppIds $AppId
-    <#
-    $Roles = Get-AppPermissionsWithOwner -AppIds $AppId | Select-Object `
-    AppId, `
-    AppName, `
-    ResourceApp, `   
-    PermissionId, `
-    PermissionType, `
-    PermissionName, `
-    @{l='Key Name';e={$KeyName}}, `
-    @{l='Key Expires';e={$KeyExpires}}, `
-    @{l='Owner';e={$Owner}}
-
-    $ApplicationRoles+=$Roles
-    #>
 
     Write-Output "$contador/$($Applications.Count) - Coletando dados ... [$AppName]"
 
@@ -212,7 +195,7 @@ foreach ($App in $Applications) {
     $obj | Add-Member -MemberType NoteProperty -Name 'Key Expires'               -Value $($KeyExpires)
     $obj | Add-Member -MemberType NoteProperty -Name 'Owner'                     -Value $($Owner)
     $ApplicationRoles+=$obj
-    }#>
+    }
 
 }
 
@@ -221,4 +204,3 @@ Get-AppPermissionsWithOwner -AppIds $AppId
 ($ApplicationRoles | Select-Object -Unique AppId).count
  $ApplicationRoles | ? {$_.AppName -eq 'DefenderAPI'} | ft AppId,AppName,ResourceApp,PermissionId,PermissionType,PermissionName,'Key Name','Key Expires',Owner
  $ApplicationRoles | Select-Object AppId,AppName,ResourceApp,PermissionId,PermissionType,PermissionName,'Key Name','Key Expires',Owner | Export-Csv -Path $('C:\Scripts\Reports\bkp\DataApplications.csv') -NoTypeInformation -Encoding UTF8
-
