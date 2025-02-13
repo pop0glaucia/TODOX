@@ -1,0 +1,224 @@
+#--------------------------------------------------------------------------------------------------------------------------------------------
+# Iniciar Conexao
+#--------------------------------------------------------------------------------------------------------------------------------------------
+Connect-MgGraph -Scopes "Application.Read.All", "Directory.Read.All"
+
+#--------------------------------------------------------------------------------------------------------------------------------------------
+# Criar funcao de coleta da Permissão
+#--------------------------------------------------------------------------------------------------------------------------------------------
+
+<#
+function Get-AppPermissionsWithOwner {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string[]]$AppIds  # Permite especificar múltiplos App IDs
+    )
+
+    $allPermissions = @()
+
+    foreach ($AppId in $AppIds) {
+        # Obter o aplicativo pelo AppId
+        $app = Get-MgApplication -Filter "appId eq '$AppId'"
+
+        if ($app) {
+            # Obter os proprietários do aplicativo
+            $owners = Get-MgApplicationOwner -ApplicationId $app.Id | Select-Object DisplayName, UserPrincipalName, Id
+
+            # Criar string formatada com os Owners
+            $ownerNames = if ($owners) { ($owners | ForEach-Object { $_.DisplayName }) -join ", " } else { "Sem proprietário atribuído" }
+
+            $permissions = $app.RequiredResourceAccess
+
+            if ($permissions.Count -eq 0) {
+                # Se não houver permissões, adicionar entrada com "N/A"
+                $allPermissions += [PSCustomObject]@{
+                    AppId          = $AppId
+                    AppName        = $app.DisplayName
+                    Owner          = $ownerNames
+                    ResourceApp    = "N/A"
+                    PermissionId   = "N/A"
+                    PermissionType = "N/A"
+                    PermissionName = "N/A"
+                }
+            } else {
+                foreach ($perm in $permissions) {
+                    # Obter o Service Principal do recurso (ex: Microsoft Graph, SharePoint, etc.)
+                    $servicePrincipal = Get-MgServicePrincipal -Filter "appId eq '$($perm.ResourceAppId)'" -All
+
+                    if ($servicePrincipal) {
+                        foreach ($resourceAccess in $perm.ResourceAccess) {
+                            $permName = $null
+
+                            if ($resourceAccess.Type -eq "Scope") {
+                                # Permissão delegada (OAuth2PermissionScopes)
+                                $permName = $servicePrincipal.Oauth2PermissionScopes | Where-Object { $_.Id -eq $resourceAccess.Id } | Select-Object -ExpandProperty Value
+                            } elseif ($resourceAccess.Type -eq "Role") {
+                                # Permissão de aplicativo (AppRoles)
+                                $permName = $servicePrincipal.AppRoles | Where-Object { $_.Id -eq $resourceAccess.Id } | Select-Object -ExpandProperty Value
+                            }
+
+                            # Adicionar à lista de permissões coletadas
+                            $allPermissions += [PSCustomObject]@{
+                                AppId          = $AppId
+                                AppName        = $app.DisplayName
+                                Owner          = $ownerNames
+                                ResourceApp    = $servicePrincipal.DisplayName
+                                PermissionId   = $resourceAccess.Id
+                                PermissionType = $resourceAccess.Type  # Scope (delegada) ou Role (aplicativo)
+                                PermissionName = $permName
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            Write-Host "⚠️ Aplicativo com AppId '$AppId' não encontrado!" -ForegroundColor Yellow
+        }
+    }
+
+    return $allPermissions
+}
+
+#>
+
+
+#--------------------------------------------------------------------------------------------------------------------------------------------
+# Carregando as aplicações
+#--------------------------------------------------------------------------------------------------------------------------------------------
+$Apps = Get-MgApplication -All
+
+#--------------------------------------------------------------------------------------------------------------------------------------------
+# Coletar Chaves de acesso das aplicações.
+#--------------------------------------------------------------------------------------------------------------------------------------------
+$contador = 0
+$Applications = @()
+
+foreach ($App in $Apps) {
+    $contador++
+    $Owner    = Get-MgApplicationOwner -ApplicationId $App.Id
+    $Username = $Owner.AdditionalProperties.userPrincipalName -join ';'
+    $OwnerID  = $Owner.Id -join ';'
+
+    if(($App.PasswordCredentials.Count -ne 0) -or ($App.KeyCredentials.Count -ne 0))
+    {
+        foreach ($SecretKey in $App.PasswordCredentials) { 
+        for ($i = 0; $i -lt $SecretKey.length; $i++) {
+            
+            Write-Output "$contador - $($App.DisplayName) access-key-secret - $($SecretKey.DisplayName)"
+            
+            $KeyName        = $SecretKey.DisplayName
+            $KeyExpires     = $SecretKey.EndDateTime
+            $Applications += [PSCustomObject]@{
+                'AppName'           = $App.DisplayName
+                'AppId'             = $App.AppId
+                'Key Name'          = $KeyName
+                'Key Expires'       = $KeyExpires
+                'Owner'             = $Username
+            }
+        }
+        }
+
+        foreach ($CertficateKey in $App.KeyCredentials) {
+        for ($i = 0; $i -lt $CertficateKey.length; $i++) {
+            
+            Write-Output "$contador - $($App.DisplayName) access-key-certficate - $($CertficateKey.DisplayName)"
+            
+            $KeyName        = $CertficateKey.DisplayName
+            $KeyExpires     = $CertficateKey.EndDateTime
+            $Applications += [PSCustomObject]@{
+                'AppName'           = $App.DisplayName
+                'AppId'             = $App.AppId
+                'Key Name'          = $KeyName
+                'Key Expires'       = $KeyExpires
+                'Owner'             = $Username
+            }
+        
+        }
+        }
+    }
+    else
+    {
+        Write-Output "$contador - AVISO: $($App.DisplayName) não possui access-key-null."
+
+        $Applications += [PSCustomObject]@{
+            'AppName'           = $App.DisplayName
+            'AppId'             = $App.AppId
+            'Key Name'          = "N/A"
+            'Key Expires'       = "N/A"
+            'Owner'             = $Username
+        }
+    }
+    
+    $Owner          = $null
+    $Username       = $null
+    $OwnerID        = $null
+    $KeyName        = $null
+    $KeyExpires     = $null
+}
+
+
+
+$Applications | ft -AutoSize
+$Applications | Select-Object -Unique PermissionValue
+($Applications | Select-Object -Unique PermissionValue).count
+($Applications | Select-Object -Unique AppId).count
+$Applications | ? {$_.AppName -eq 'DefenderAPI'} | ft AppName,AppId,'Key Name','Key Expires',Owner
+$Applications | ? {$_.AppName -eq 'Custom-MDATP'} | ft AppName,AppId,'Key Name','Key Expires',Owner
+
+#--------------------------------------------------------------------------------------------------------------------------------------------
+# Coletar Permissões
+#--------------------------------------------------------------------------------------------------------------------------------------------
+
+$contador = 0
+$ApplicationRoles = @()
+foreach ($App in $Applications) {
+    $contador++
+        
+    $AppName     = $($App.'AppName');
+    $AppId       = $($App.'AppId');
+    $KeyName     = $($App.'Key Name');
+    $KeyExpires  = $($App.'Key Expires');
+    $Owner       = $($App.'Owner');
+
+    $Roles = @()
+    $Roles = Get-AppPermissionsWithOwner -AppIds $AppId
+    <#
+    $Roles = Get-AppPermissionsWithOwner -AppIds $AppId | Select-Object `
+    AppId, `
+    AppName, `
+    ResourceApp, `   
+    PermissionId, `
+    PermissionType, `
+    PermissionName, `
+    @{l='Key Name';e={$KeyName}}, `
+    @{l='Key Expires';e={$KeyExpires}}, `
+    @{l='Owner';e={$Owner}}
+
+    $ApplicationRoles+=$Roles
+    #>
+
+    Write-Output "$contador/$($Applications.Count) - Coletando dados ... [$AppName]"
+
+    foreach ($Role in $Roles){
+    $obj = New-Object psobject
+
+    $obj | Add-Member -MemberType NoteProperty -Name AppId                       -Value $($Role.AppId)
+    $obj | Add-Member -MemberType NoteProperty -Name AppName                     -Value $($Role.AppName)
+    $obj | Add-Member -MemberType NoteProperty -Name ResourceApp                 -Value $($Role.ResourceApp)
+    $obj | Add-Member -MemberType NoteProperty -Name PermissionId                -Value $($Role.PermissionId)
+    $obj | Add-Member -MemberType NoteProperty -Name PermissionType              -Value $($Role.PermissionType)
+    $obj | Add-Member -MemberType NoteProperty -Name PermissionName              -Value $($Role.PermissionName)
+    $obj | Add-Member -MemberType NoteProperty -Name 'Key Name'                  -Value $($KeyName)
+    $obj | Add-Member -MemberType NoteProperty -Name 'Key Expires'               -Value $($KeyExpires)
+    $obj | Add-Member -MemberType NoteProperty -Name 'Owner'                     -Value $($Owner)
+    $ApplicationRoles+=$obj
+    }#>
+
+}
+
+Get-AppPermissionsWithOwner -AppIds $AppId
+ $ApplicationRoles | ft -AutoSize
+($ApplicationRoles | Select-Object -Unique AppId).count
+ $ApplicationRoles | ? {$_.AppName -eq 'DefenderAPI'} | ft AppId,AppName,ResourceApp,PermissionId,PermissionType,PermissionName,'Key Name','Key Expires',Owner
+ $ApplicationRoles | Select-Object AppId,AppName,ResourceApp,PermissionId,PermissionType,PermissionName,'Key Name','Key Expires',Owner | Export-Csv -Path $('C:\Scripts\Reports\bkp\DataApplications.csv') -NoTypeInformation -Encoding UTF8
+
