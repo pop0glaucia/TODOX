@@ -24,7 +24,7 @@ function Get-AppPermissionsWithOwner {
             $owners = Get-MgApplicationOwner -ApplicationId $app.Id | Select-Object DisplayName, UserPrincipalName, Id
 
             # Criar string formatada com os Owners
-            $ownerNames = if ($owners) { ($owners | ForEach-Object { $_.DisplayName }) -join ", " } else { "Sem proprietário atribuído" }
+            $ownerNames = if ($owners) { ($owners | ForEach-Object { $_.DisplayName }) -join ", " } else { "N/A" }
 
             $permissions = $app.RequiredResourceAccess
 
