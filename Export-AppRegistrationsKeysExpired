@@ -196,7 +196,7 @@ foreach ($App in $Applications) {
     $obj | Add-Member -MemberType NoteProperty -Name PermissionName              -Value $($Role.PermissionName)
     $obj | Add-Member -MemberType NoteProperty -Name 'Key Name'                  -Value $($KeyName)
     $obj | Add-Member -MemberType NoteProperty -Name 'Key Expires'               -Value $($KeyExpires)
-    $obj | Add-Member -MemberType NoteProperty -Name 'Owner'                     -Value $($Owner)
+    $obj | Add-Member -MemberType NoteProperty -Name 'Owner'                     -Value $($Role.Owner)
     $ApplicationRoles+=$obj
     }
 
